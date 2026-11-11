@@ -28,3 +28,12 @@ useDefault = true
 description = "CI のビルド用ダミー Supabase anon key（実鍵ではない）"
 regexTarget = "match"
 regexes = ['''NEXT_PUBLIC_SUPABASE_ANON_KEY:\s*"eyJ[\w-]+\.[\w-]*dummy-anon-key"''']
+
+# AI の取り込み（src/lib/import/）が、読み取った行に付ける番号。「<グループ名>-<連番>」の形（例: stakeholders-0）。
+# 項目名が key なので generic-api-key に当たるが、行の番号であって鍵ではない。
+# 値の形（英字・ハイフン・3 桁までの数字で、すぐ引用符が閉じる）まで書いてあるので、key という名前の項目に
+# 本物の鍵を入れた場合は、この除外には当たらず、検出される。
+[[allowlists]]
+description = "取り込みの行の番号（<グループ名>-<連番>。秘密の値ではない）"
+regexTarget = "match"
+regexes = ['''key:\s*['"][A-Za-z]+-\d{1,3}['"]''']
