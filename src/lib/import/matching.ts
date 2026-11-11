@@ -38,7 +38,7 @@ const KANJI_DIGITS: Record<string, number> = { 〇: 0, 一: 1, 二: 2, 三: 3, �
 /** 「第三回」「第十二回」の漢数字を算用数字にする（99 まで） */
 const kanjiOrdinalToDigits = (text: string): string =>
   text.replace(/第([〇一二三四五六七八九十]{1,3})(回|期|号)/g, (whole, digits: string, suffix: string) => {
-    let value = 0;
+    let value: number;
     if (digits.includes('十')) {
       const [tens, ones] = digits.split('十');
       value = (tens ? KANJI_DIGITS[tens] : 1) * 10 + (ones ? KANJI_DIGITS[ones] : 0);
