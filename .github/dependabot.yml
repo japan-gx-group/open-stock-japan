@@ -1,4 +1,4 @@
-# Dependabot: 依存の更新を、週に 1 回 Pull Request で提案する。
+# Dependabot: 依存の更新を、月に 1 回（毎月 1 日）Pull Request で提案する。
 # - 取り込むかどうかは、CI（Secret Scan / Lint & Build Verification / Database Migrations）が通ることを見て、人が決める。
 # - セキュリティの修正は、この予定とは別に、見つかった時点で提案される（リポジトリの設定で Dependabot security updates を有効にしている場合）。
 # - 新しいライブラリを足すことはない（いま使っているものの版を上げるだけ）。
@@ -7,8 +7,7 @@ updates:
   - package-ecosystem: npm
     directory: /
     schedule:
-      interval: weekly
-      day: monday
+      interval: monthly
       time: "09:00"
       timezone: Asia/Tokyo
     open-pull-requests-limit: 5
@@ -21,13 +20,19 @@ updates:
         update-types:
           - minor
           - patch
+    ignore:
+      # TypeScript のメジャー更新（7 以降）は、typescript-eslint が対応するまで提案しない。
+      # typescript-eslint 8.x が対応している TypeScript は 6.1 未満で、7 を入れると npm ci が依存の解決に失敗する（2026-11 時点）。
+      # typescript-eslint が対応したら、この ignore を消す。
+      - dependency-name: typescript
+        update-types:
+          - version-update:semver-major
 
   # ワークフローが使うアクション（コミットのハッシュで固定している）の更新
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
-      day: monday
+      interval: monthly
       time: "09:00"
       timezone: Asia/Tokyo
     commit-message:
