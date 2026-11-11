@@ -9,6 +9,8 @@
 
 スタートアップの**株主名簿・資本政策・ストックオプション・株主総会・取締役会・株主コミュニケーション**を一元管理する、オープンソースのウェブアプリです。日本の会社法・税法の実務に合わせて作っています。
 
+画面つきの紹介は、公式サイト [o-stock.org](https://o-stock.org) にあります。
+
 > [!IMPORTANT]
 > 画面に出る期限・要件の判定と、テンプレートから作る文書は、実務の目安です。法的助言・税務助言ではありません。
 > 定款・株主間契約・投資契約の定めと、弁護士・司法書士・税理士の判断が常に優先します。
@@ -84,6 +86,8 @@ npm run dev   # http://localhost:3100
 - [docs/brand.md](docs/brand.md) — ロゴと配色
 - [CONTRIBUTING.md](CONTRIBUTING.md) — 開発への参加
 - [SECURITY.md](SECURITY.md) — 脆弱性の報告
+
+公式サイトには、画面つきの[ガイド](https://o-stock.org/guides)と、版ごとの[リリースノート](https://o-stock.org/releases)があります。
 
 ## 開発
 
