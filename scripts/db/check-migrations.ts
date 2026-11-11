@@ -580,7 +580,7 @@ const main = (argv: string[]): number => {
   }
   const dir = argv[0] ?? DEFAULT_DIR;
 
-  let isDirectory = false;
+  let isDirectory: boolean;
   try {
     isDirectory = statSync(dir).isDirectory();
   } catch {
