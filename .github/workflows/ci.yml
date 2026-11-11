@@ -55,9 +55,11 @@ jobs:
       # gitleaks は git log --all で、fetch-depth: 0 で取ってきた全ブランチを調べるため、まだどこにも
       # 入っていない別のブランチの 1 コミットで、関係の無い PR の CI まで落ちる。
       # 別のブランチのコミットは、そのブランチの PR の CI で調べる。
+      # --verbose: 検出したファイル・行・ルールを表示する（値は --redact で伏せたまま）。
+      # これが無いと「leaks found: N」としか出ず、どこを直せばよいかが分からない。
       # 検出時は終了コード 1 で落ちる。
       - name: Scan for committed secrets
-        run: ./gitleaks git . --config .gitleaks.toml --redact --no-banner --log-opts="HEAD"
+        run: ./gitleaks git . --config .gitleaks.toml --redact --verbose --no-banner --log-opts="HEAD"
 
   # 空のデータベースに、すべてのマイグレーションとデモシードを流せるかを確かめる。
   # check:migrations（DDL だけか）と単体テストは SQL を実行しないので、実際に流して初めて分かる誤り

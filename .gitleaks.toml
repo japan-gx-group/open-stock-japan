@@ -1,7 +1,7 @@
 # gitleaks（秘密情報スキャン）の設定。
 # CI の secret-scan ジョブ（.github/workflows/ci.yml）が、この設定でリポジトリの
 # コミット履歴全体を走査する。ローカルでも同じ設定で実行できる:
-#   gitleaks git . --config .gitleaks.toml --redact
+#   gitleaks git . --config .gitleaks.toml --redact --verbose
 #
 # 方針:
 # - 既定のルールセットをそのまま使う（[extend] useDefault）。ルールは自作しない。
