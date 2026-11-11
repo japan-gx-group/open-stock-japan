@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "description": "スタートアップの株主名簿・資本政策・ストックオプション・株主総会・取締役会・株主コミュニケーションを一元管理するオープンソースツール",
   "license": "Apache-2.0",
+  "homepage": "https://o-stock.org",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/japan-gx-group/open-stock-japan.git"
