@@ -166,14 +166,14 @@ npm run typecheck         # 型エラーが無い（CI と同じく、build の�
 
 ## リリース（メンテナ向け）
 
-版の番号は[セマンティック バージョニング](https://semver.org/lang/ja/)に従います（1.0 までは、マイナーの版でも互換性の無い変更が入ることがあります）。
+版の番号は[セマンティック バージョニング](https://semver.org/lang/ja/)に従います。互換性の無い変更（データの形が変わり、もとに戻せないマイグレーション・設定や環境変数の必須の変更・機能の削除）は、メジャーの版を上げます。
 公開した版は、[Releases](https://github.com/japan-gx-group/open-stock-japan/releases) に並びます。
 
 1. `package.json` の `version` を上げる Pull Request を出し、マージします（`npm version <版> --no-git-tag-version` で、`package-lock.json` も合います）。
 2. `main` の CI がすべて通っていることを確かめ、タグと Release を作ります。
 
    ```bash
-   gh release create v0.2.0 --target main --title "v0.2.0" --generate-notes
+   gh release create v1.1.0 --target main --title "v1.1.0" --generate-notes
    ```
 
 3. 自動で作られた変更の一覧に、使っている人が知るべきことを書き足します。
