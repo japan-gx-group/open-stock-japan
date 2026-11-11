@@ -18,6 +18,7 @@ OpenStock Japan へのご関心ありがとうございます。
 - [コミットメッセージ](#コミットメッセージ)
 - [Pull Request の流れ](#pull-request-の流れ)
 - [コミット前チェックリスト](#コミット前チェックリスト)
+- [リリース（メンテナ向け）](#リリースメンテナ向け)
 
 ---
 
@@ -162,6 +163,26 @@ npm run typecheck         # 型エラーが無い（CI と同じく、build の�
 | `check-ignored-sources` | 毎回 | ソースのファイルが `.gitignore` に当たって、コミットから漏れていないか検査 |
 
 `build` と `test` の失敗はフックでは検出できないため、**push 前に `npm run verify` を自分で流してください**。強制力の本丸は CI 側（シークレット走査 / check:migrations / lint / test / build / typecheck / 空の DB へのマイグレーションとデモシードの適用）です。
+
+## リリース（メンテナ向け）
+
+版の番号は[セマンティック バージョニング](https://semver.org/lang/ja/)に従います（1.0 までは、マイナーの版でも互換性の無い変更が入ることがあります）。
+公開した版は、[Releases](https://github.com/japan-gx-group/open-stock-japan/releases) に並びます。
+
+1. `package.json` の `version` を上げる Pull Request を出し、マージします（`npm version <版> --no-git-tag-version` で、`package-lock.json` も合います）。
+2. `main` の CI がすべて通っていることを確かめ、タグと Release を作ります。
+
+   ```bash
+   gh release create v0.2.0 --target main --title "v0.2.0" --generate-notes
+   ```
+
+3. 自動で作られた変更の一覧に、使っている人が知るべきことを書き足します。
+   - マイグレーションを足した版では、その旨と、既存の環境で `npx supabase db push` が要ること
+   - 環境変数・設定の変更、できなくなったこと
+   - 法令の数値・判定を変えた場合は、その内容と根拠
+4. 公式サイトのリポジトリで、`lib/site.ts` の `APP_VERSION` を合わせ、リリースノートの記事を足します。
+
+タグは、公開したあとで付け替えません（直すときは、次の版を出します）。
 
 ---
 
