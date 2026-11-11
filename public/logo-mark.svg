@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="96" height="96" role="img" aria-labelledby="t">
+  <title id="t">OpenStock Japan</title>
+  <path d="M38.018 12.081A18.4 18.4 0 1 1 7.117 31.315L13.658 29.253A11.6 11.6 0 1 0 33.280 17.040Z" fill="#2d4b8e" stroke="#2d4b8e" stroke-width="1.2" stroke-linejoin="round"/>
+  <path d="M5.974 27.691A18.4 18.4 0 0 1 17.759 6.691L19.407 13.348A11.6 11.6 0 0 0 12.515 25.629Z" fill="#6b8fd9" stroke="#6b8fd9" stroke-width="1.2" stroke-linejoin="round"/>
+  <path d="M21.448 5.778A18.4 18.4 0 0 1 35.271 9.456L30.532 14.414A11.6 11.6 0 0 0 23.095 12.435Z" fill="#b7c9f0" stroke="#b7c9f0" stroke-width="1.2" stroke-linejoin="round"/>
+  <circle cx="24" cy="24" r="4.5" fill="#e2533f"/>
+</svg>

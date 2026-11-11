@@ -1,0 +1,34 @@
+# Dependabot: 依存の更新を、週に 1 回 Pull Request で提案する。
+# - 取り込むかどうかは、CI（Secret Scan / Lint & Build Verification / Database Migrations）が通ることを見て、人が決める。
+# - セキュリティの修正は、この予定とは別に、見つかった時点で提案される（リポジトリの設定で Dependabot security updates を有効にしている場合）。
+# - 新しいライブラリを足すことはない（いま使っているものの版を上げるだけ）。
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Tokyo
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      # 互換性のある更新（マイナー・パッチ）は 1 つの Pull Request にまとめる。メジャーは 1 つずつ確かめる。
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # ワークフローが使うアクション（コミットのハッシュで固定している）の更新
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Asia/Tokyo
+    commit-message:
+      prefix: ci

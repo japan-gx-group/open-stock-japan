@@ -1,0 +1,24 @@
+OpenStock Japan
+Copyright 2026 日本GXグループ株式会社 and contributors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+The base architecture (authentication, organization and member management,
+AI provider layer, UI foundation) is derived from OpenGreenTrack
+(https://github.com/japan-gx-group/OpenGreenTrack), licensed under the
+Apache License, Version 2.0.
+
+The wordmark in the logo (public/logo.svg, public/logo-dark.svg and
+src/components/ui/logoPaths.ts) consists of outlines derived from the
+Instrument Sans typeface, Copyright 2022 The Instrument Sans Project Authors,
+licensed under the SIL Open Font License, Version 1.1.
+
+"J-KISS" refers to the convertible equity template published by Coral
+Capital, Inc. (https://coralcap.co/j-kiss/) and to warrants issued under it.
+The template text is not included in this repository. OpenStock Japan is not
+affiliated with, sponsored by, or endorsed by Coral Capital, Inc. Other
+company and product names are the property of their respective owners and are
+used only to identify them.
+
+The legal reference under docs/legal/ is a general summary prepared for this
+project. It is not legal or tax advice.

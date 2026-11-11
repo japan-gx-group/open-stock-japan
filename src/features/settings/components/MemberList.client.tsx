@@ -1,0 +1,762 @@
+'use client';
+
+// メンバー管理: 自組織の社内メンバー（admin / logger / viewer）の一覧と、ロールの変更・削除（下書き→保存で確定）、
+// 招待リンクの発行・コピー・取り消しを行う。招待発行時はサーバ側で招待メールを送信し、
+// その結果（送信済み / メール未設定 / 送信失敗）をモーダル内で案内する。
+// 株主ロール（shareholder）のアカウントと、その招待はここには出さない（株主の画面で管理する）。
+// メンバー・招待の読み取りは RLS 前提でブラウザから直接行い、書き込みは Server Action 経由で行う。
+// メンバーの招待・削除・ロールの変更は管理者にだけ出す（サーバの requireAdmin と、RLS・DB の RPC・トリガーでも確かめる）。
+// 招待中の一覧（招待リンクの秘密を含む）は RLS で管理者にしか返らないため、管理者のときだけ取得する。
+
+import React, { useCallback, useEffect, useState } from 'react';
+import { Badge } from '@/components/ui/badge';
+import { Card } from '@/components/ui/card';
+import { Modal } from '@/components/ui/Modal.client';
+import { Plus, Trash2, Send, Copy, Check, Loader2, AlertTriangle } from 'lucide-react';
+import { createClient } from '@/lib/supabase/client';
+import { isValidEmail } from '@/lib/email';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { saveMemberChanges } from '@/features/settings/services/members';
+import { createInvite, revokeInvite } from '@/features/settings/services/invites';
+import { isLocalOnlyInviteUrl } from '@/features/settings/services/inviteLink';
+import type { MemberRoleChange } from '@/features/settings/services/memberChangePlan';
+import { getMembersMfaStatus } from '@/features/settings/services/mfaAdmin';
+import { ResetMfaButton } from '@/features/settings/components/ResetMfaButton.client';
+// 型のみの import（実体はサーバ専用モジュールのためバンドルされない）
+import type { InviteEmailStatus } from '@/features/settings/services/inviteEmail';
+import {
+  ASSIGNABLE_MEMBER_ROLES,
+  INTERNAL_ROLES,
+  MEMBER_ROLE,
+  isAdmin,
+  isAssignableMemberRole,
+  isMemberRole,
+  memberRoleDescription,
+  memberRoleLabel,
+  type AssignableMemberRole,
+  type MemberRole,
+} from '@/types/role';
+
+interface Member {
+  id: string;
+  name: string;
+  email: string;
+  role: MemberRole;
+}
+
+// 下書きと現状の差分。削除と、ロールが変わったメンバーだけを送る。
+const diffMemberDraft = (members: Member[], draftMembers: Member[]) => {
+  const draftById = new Map(draftMembers.map(m => [m.id, m]));
+  const removedMemberIds = members.filter(m => !draftById.has(m.id)).map(m => m.id);
+  const roleChanges: MemberRoleChange[] = members.flatMap(m => {
+    const draft = draftById.get(m.id);
+    if (!draft || draft.role === m.role || !isAssignableMemberRole(draft.role)) return [];
+    return [{ memberId: m.id, role: draft.role }];
+  });
+  return { removedMemberIds, roleChanges };
+};
+
+// ロールを選ぶ欄に添える説明（社内の 4 つのロール）。
+const ROLE_GUIDE = ASSIGNABLE_MEMBER_ROLES.map(role => `${memberRoleLabel(role)}: ${memberRoleDescription(role)}`);
+
+// 保存の確認モーダルの文。
+const describePendingChanges = ({ removedMemberIds, roleChanges }: ReturnType<typeof diffMemberDraft>) => {
+  const parts: string[] = [];
+  if (roleChanges.length > 0) parts.push(`ロールの変更 ${roleChanges.length} 件`);
+  if (removedMemberIds.length > 0) parts.push(`メンバーの削除 ${removedMemberIds.length} 件`);
+  if (parts.length === 0) return '変更はありません。';
+  const removalNote = removedMemberIds.length > 0 ? '削除したメンバーはログインできなくなります。' : '';
+  return `${parts.join('・')}を保存しますか？${removalNote}`;
+};
+
+// 発行直後の招待（モーダルに結果を表示するための情報）。
+// emailStatus により「送信済み / メール未設定 / 送信失敗」の案内を出し分ける。
+interface IssuedInviteView {
+  url: string;
+  email: string;
+  emailStatus: InviteEmailStatus;
+}
+
+interface PendingInvite {
+  token: string;
+  email: string;
+  expiresAt: string;
+  /** 取得時点で期限切れか（レンダー中に Date.now() を呼ばないよう取得時に判定する） */
+  expired: boolean;
+}
+
+const buildInviteUrl = (token: string) => `${window.location.origin}/invite/${token}`;
+
+// 招待メールの設定手順（セットアップガイドの「2-C. 招待メールの設定（任意）」）。
+// 設定はアプリ内の画面ではなく .env.local への追記で行うため、公開リポジトリの手順へ誘導する。
+const INVITE_EMAIL_SETUP_DOC_URL =
+  'https://github.com/japan-gx-group/open-stock-japan/blob/main/docs/setup-guide.md#2-c-招待メールの設定任意';
+
+// 管理者が 0 人の組織の復旧手順（セットアップガイドの「2-H」の「H-2」）。運用担当が SQL で管理者を決め直す。
+const ADMIN_RECOVERY_DOC_URL =
+  'https://github.com/japan-gx-group/open-stock-japan/blob/main/docs/setup-guide.md#h-2-管理者がいなくなったときの復旧';
+
+// 一覧の取得はコンポーネント外の純粋な fetch 関数に分け、state 反映は呼び出し側の
+// コールバックで行う（react-hooks/set-state-in-effect 対応）。
+const fetchMembers = async (): Promise<Member[] | null> => {
+  const supabase = createClient();
+  // RLS により自組織の profiles のみ返る。株主ロールの行は除く。
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, fullName, email, role')
+    .in('role', [...INTERNAL_ROLES])
+    .order('createdAt', { ascending: true });
+  if (error) return null;
+  return (data ?? []).map((row) => ({
+    id: row.id as string,
+    name: (row.fullName as string | null) ?? '(未設定)',
+    email: row.email as string,
+    // 想定外の値は安全側（メンバー）に倒す。
+    role: isMemberRole(row.role) ? row.role : MEMBER_ROLE,
+  }));
+};
+
+const fetchPendingInvites = async (): Promise<PendingInvite[]> => {
+  const supabase = createClient();
+  // RLS により自組織の招待のみ返る。株主あての招待は除く。
+  const { data, error } = await supabase
+    .from('invites')
+    .select('token, email, expiresAt')
+    .in('role', [...INTERNAL_ROLES])
+    .is('acceptedAt', null)
+    .order('createdAt', { ascending: false });
+  if (error) return [];
+  const now = Date.now();
+  return (data ?? []).map((row) => ({
+    token: row.token as string,
+    email: row.email as string,
+    expiresAt: row.expiresAt as string,
+    expired: new Date(row.expiresAt as string).getTime() < now,
+  }));
+};
+
+const formatExpiry = (expiresAt: string) => {
+  const date = new Date(expiresAt);
+  if (Number.isNaN(date.getTime())) return '';
+  return `${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')}`;
+};
+
+export const MemberList = ({ showToast }: { showToast: (message: string, type: 'success' | 'error') => void }) => {
+  const { profile, refresh: refreshCurrentUser } = useCurrentUser();
+  // 画面の出し分けだけに使う。権限の正しさはサーバと DB で確かめている。
+  const canManageMembers = isAdmin(profile?.role);
+
+  const [members, setMembers] = useState<Member[]>([]);
+  // メンバーごとの、二要素認証を登録済みかどうか（管理者だけが読める。読めないときは空のまま = 解除のボタンを出さない）
+  const [mfaStatus, setMfaStatus] = useState<Record<string, boolean>>({});
+  const [draftMembers, setDraftMembers] = useState<Member[]>([]);
+  const [hasDraft, setHasDraft] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+
+  const [pendingInvites, setPendingInvites] = useState<PendingInvite[]>([]);
+
+  const [isInviteOpen, setIsInviteOpen] = useState(false);
+  const [inviteForm, setInviteForm] = useState<{ email: string; role: AssignableMemberRole }>({
+    email: '',
+    role: MEMBER_ROLE,
+  });
+  const [issuedInvite, setIssuedInvite] = useState<IssuedInviteView | null>(null);
+  const [isInviting, setIsInviting] = useState(false);
+
+  const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [memberToDelete, setMemberToDelete] = useState<string | null>(null);
+  const [copiedToken, setCopiedToken] = useState<string | null>(null);
+
+  // fetch 結果を state へ反映する（初期表示と保存後の再取得で共用）。
+  const applyMembers = useCallback((rows: Member[] | null) => {
+    if (rows) {
+      setLoadError('');
+      setMembers(rows);
+      setDraftMembers(rows);
+      setHasDraft(false);
+    } else {
+      setLoadError('メンバー一覧の取得に失敗しました');
+    }
+    setIsLoading(false);
+  }, []);
+
+  const loadMembers = useCallback(
+    async () => applyMembers(await fetchMembers()),
+    [applyMembers],
+  );
+
+  const loadInvites = useCallback(async () => {
+    setPendingInvites(await fetchPendingInvites());
+  }, []);
+
+  useEffect(() => {
+    fetchMembers().then(applyMembers);
+  }, [applyMembers]);
+
+  useEffect(() => {
+    if (!canManageMembers) return;
+    fetchPendingInvites().then(setPendingInvites);
+  }, [canManageMembers]);
+
+  const loadMfaStatus = useCallback(async () => {
+    const result = await getMembersMfaStatus().catch(() => null);
+    setMfaStatus(result?.ok ? result.data : {});
+  }, []);
+
+  useEffect(() => {
+    if (!canManageMembers) return;
+    getMembersMfaStatus()
+      .then(result => setMfaStatus(result.ok ? result.data : {}))
+      .catch(() => setMfaStatus({}));
+  }, [canManageMembers]);
+
+  const handleRemove = (id: string) => {
+    setMemberToDelete(id);
+    setIsDeleteModalOpen(true);
+  };
+
+  const confirmDeleteMember = () => {
+    if (memberToDelete) {
+      setDraftMembers(prev => prev.filter(m => m.id !== memberToDelete));
+      setHasDraft(true);
+    }
+    setIsDeleteModalOpen(false);
+    setMemberToDelete(null);
+  };
+
+  const handleRoleChange = (id: string, value: string) => {
+    if (!isAssignableMemberRole(value)) return;
+    setDraftMembers(prev => prev.map(m => (m.id === id ? { ...m, role: value } : m)));
+    setHasDraft(true);
+  };
+
+  const handleSaveClick = () => {
+    setIsSaveModalOpen(true);
+  };
+
+  // 保存の確認と保存の両方で使う、下書きと現状の差分。
+  const pendingChanges = diffMemberDraft(members, draftMembers);
+  const demotesSelf = pendingChanges.roleChanges.some(
+    change => change.memberId === profile?.id && !isAdmin(change.role),
+  );
+  const savedAdminCount = members.filter(m => isAdmin(m.role)).length;
+  // 管理者が 0 人になる下書きは保存させない（サーバと DB のトリガーでも拒否される）。
+  const draftLeavesNoAdmin = !draftMembers.some(m => isAdmin(m.role));
+
+  const confirmSaveChanges = async () => {
+    if (isSaving) return;
+    setIsSaving(true);
+
+    try {
+      const result = await saveMemberChanges(pendingChanges);
+      if (!result.ok) {
+        showToast(result.error, 'error');
+      } else {
+        showToast('メンバーの変更内容を保存しました', 'success');
+      }
+    } catch {
+      showToast('通信に失敗しました。時間をおいて再度お試しください', 'error');
+    } finally {
+      // 成否にかかわらず一覧を取り直し、実データと画面を一致させる。
+      // 自分のロールが変わった場合に出し分けを合わせるため、ログイン中の人の情報も取り直す。
+      await loadMembers();
+      if (pendingChanges.roleChanges.some(change => change.memberId === profile?.id)) {
+        await refreshCurrentUser();
+      }
+      setIsSaving(false);
+      setIsSaveModalOpen(false);
+    }
+  };
+
+  const cancelChanges = () => {
+    setDraftMembers(members);
+    setHasDraft(false);
+  };
+
+  const handleSendInvite = async () => {
+    if (isInviting) return;
+    if (!isValidEmail(inviteForm.email)) {
+      showToast('有効なメールアドレスを入力してください', 'error');
+      return;
+    }
+
+    setIsInviting(true);
+    try {
+      const result = await createInvite({ email: inviteForm.email, role: inviteForm.role });
+      if (!result.ok) {
+        showToast(result.error, 'error');
+        return;
+      }
+      // 招待メールの送信結果はモーダル内の案内で出し分ける。送信できなかった
+      // 場合（未設定・失敗）も招待自体は成立しているため、リンクの共有で代替できる。
+      setIssuedInvite({
+        url: buildInviteUrl(result.data.token),
+        email: result.data.email,
+        emailStatus: result.data.emailStatus,
+      });
+      if (result.data.emailStatus === 'sent') {
+        showToast('招待メールを送信しました', 'success');
+      } else if (result.data.emailStatus === 'failed') {
+        showToast('招待メールの送信に失敗しました。招待リンクを共有してください', 'error');
+      }
+      await loadInvites();
+    } catch {
+      showToast('通信に失敗しました。時間をおいて再度お試しください', 'error');
+    } finally {
+      setIsInviting(false);
+    }
+  };
+
+  const closeInviteModal = () => {
+    setIsInviteOpen(false);
+    setInviteForm({ email: '', role: MEMBER_ROLE });
+    setIssuedInvite(null);
+  };
+
+  const copyToClipboard = async (text: string, token: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedToken(token);
+      setTimeout(() => setCopiedToken(prev => (prev === token ? null : prev)), 2000);
+    } catch {
+      showToast('コピーに失敗しました。リンクを選択して手動でコピーしてください', 'error');
+    }
+  };
+
+  const handleRevokeInvite = async (token: string) => {
+    try {
+      const result = await revokeInvite(token);
+      if (!result.ok) {
+        showToast(result.error, 'error');
+      } else {
+        showToast('招待を取り消しました', 'success');
+      }
+    } catch {
+      showToast('通信に失敗しました。時間をおいて再度お試しください', 'error');
+    } finally {
+      await loadInvites();
+    }
+  };
+
+  return (
+    <Card className="flex flex-col gap-4 relative">
+      <div className="flex justify-between items-center">
+        <h2 className="font-serif font-semibold text-lg text-text-heading flex items-center gap-2">メンバー管理</h2>
+        {canManageMembers && (
+          <button
+            type="button"
+            onClick={() => setIsInviteOpen(true)}
+            className="gt-btn-primary flex items-center gap-1 text-xs"
+          >
+            <Plus size={16} /> メンバーを招待
+          </button>
+        )}
+      </div>
+      <hr className="border-border" />
+
+      {/* 管理者が 0 人の組織（この仕組みを入れる前に、組織を作った人のアカウントを削除していた場合など）。
+          画面からは直せないため、運用担当による復旧（setup-guide の手順）へ案内する。 */}
+      {!isLoading && !loadError && members.length > 0 && savedAdminCount === 0 && (
+        <div className="flex items-start gap-2 rounded-lg border border-danger/30 bg-danger/5 px-4 py-3 text-sm text-danger" role="alert">
+          <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+          <span>
+            この組織には管理者がいません。組織の設定を変えられる人がいないため、運用担当に連絡してください（
+            <a
+              href={ADMIN_RECOVERY_DOC_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline underline-offset-2"
+            >
+              セットアップガイド「管理者がいなくなったときの復旧」
+            </a>
+            ）。
+          </span>
+        </div>
+      )}
+
+      {canManageMembers && !isLoading && !loadError && savedAdminCount === 1 && (
+        <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning-soft px-4 py-3 text-sm text-warning">
+          <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+          <span>
+            管理者が 1 人だけです。休職・退職などでロールの変更やメンバーの削除ができなくなるのを防ぐため、管理者を 2 人以上にしておくことを勧めます。
+          </span>
+        </div>
+      )}
+
+      {/* 氏名・ロールは折り返さない。長いメールアドレスは … で切り、全文は title で読めるようにする。
+          それでも入りきらない幅では、表だけが横にスクロールする */}
+      <div className="gt-table-scroll">
+        <table className="w-full text-left border-collapse">
+          <thead>
+            <tr className="border-b border-border text-text-muted text-sm whitespace-nowrap">
+              <th className="font-semibold px-4 py-2">氏名</th>
+              <th className="font-semibold px-4 py-2">メールアドレス</th>
+              <th className="font-semibold px-4 py-2">ロール</th>
+              <th className="font-semibold px-4 py-2 text-right">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {draftMembers.map(member => {
+              const isSelf = member.id === profile?.id;
+              return (
+                <tr key={member.id} className="border-b border-border-light hover:bg-bg-main transition-colors">
+                  <td className="px-4 py-3 font-medium text-text-main whitespace-nowrap">
+                    {member.name}
+                    {isSelf && <span className="text-xs text-text-muted font-normal">（自分）</span>}
+                  </td>
+                  <td className="px-4 py-3 text-sm text-text-muted">
+                    <span className="block max-w-[300px] truncate" title={member.email}>
+                      {member.email}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-sm whitespace-nowrap">
+                    {canManageMembers ? (
+                      <select
+                        aria-label={`${member.name} のロール`}
+                        value={member.role}
+                        onChange={e => handleRoleChange(member.id, e.target.value)}
+                        className="gt-field"
+                        title={memberRoleDescription(member.role)}
+                      >
+                        {ASSIGNABLE_MEMBER_ROLES.map(role => (
+                          <option key={role} value={role}>
+                            {memberRoleLabel(role)}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <Badge variant={isAdmin(member.role) ? 'accent' : 'neutral'}>
+                        {memberRoleLabel(member.role)}
+                      </Badge>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-right whitespace-nowrap">
+                    {/* 認証アプリの入った機器をなくしたメンバーの二要素認証を解除する（管理者だけ。自分には使えない） */}
+                    {canManageMembers && !isSelf && (
+                      <ResetMfaButton
+                        memberId={member.id}
+                        memberName={member.name || member.email}
+                        hasMfa={mfaStatus[member.id] === true}
+                        onReset={loadMfaStatus}
+                        showToast={showToast}
+                        className="gt-btn text-xs mr-2 align-middle"
+                      />
+                    )}
+                    {/* 自分自身の削除・管理者でない人の削除はサーバ側でも拒否されるが、UIでも塞いでおく */}
+                    {canManageMembers && !isSelf && (
+                      <button
+                        type="button"
+                        onClick={() => handleRemove(member.id)}
+                        className="text-danger hover:brightness-75 inline-flex items-center gap-1 text-xs p-1 align-middle"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+            {isLoading && (
+              <tr>
+                <td colSpan={4} className="text-text-muted text-sm px-4 py-8 text-center">
+                  <Loader2 size={16} className="animate-spin inline-block mr-2" />
+                  メンバーを読み込んでいます...
+                </td>
+              </tr>
+            )}
+            {!isLoading && loadError && (
+              <tr>
+                <td colSpan={4} className="text-danger text-sm px-4 py-8 text-center">
+                  {loadError}
+                </td>
+              </tr>
+            )}
+            {!isLoading && !loadError && draftMembers.length === 0 && (
+              <tr>
+                <td colSpan={4} className="text-text-muted text-sm px-4 py-8 text-center">
+                  メンバーが見つかりません。
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {!canManageMembers && !isLoading && !loadError && (
+        <p className="text-xs text-text-muted">メンバーの招待・削除・ロールの変更は、管理者のみできます。</p>
+      )}
+
+      {hasDraft && (
+        <div className="flex flex-col items-end gap-2 mt-4 pt-4 border-t border-border">
+          {draftLeavesNoAdmin && (
+            <p className="text-xs text-danger" role="alert">
+              管理者が 1 人もいなくなるため保存できません。だれか 1 人を管理者にしてください。
+            </p>
+          )}
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={cancelChanges} className="gt-btn">キャンセル</button>
+            <button
+              type="button"
+              onClick={handleSaveClick}
+              className="gt-btn-primary"
+              disabled={draftLeavesNoAdmin}
+            >
+              変更を保存
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 未受諾の招待一覧。リンクの再コピーと取り消しができる（管理者だけ） */}
+      {canManageMembers && pendingInvites.length > 0 && (
+        <div className="flex flex-col gap-2 mt-2">
+          <h3 className="font-serif font-semibold text-sm text-text-heading">招待中</h3>
+          <div className="gt-table-scroll">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-border text-text-muted text-sm whitespace-nowrap">
+                  <th className="font-semibold px-4 py-2">メールアドレス</th>
+                  <th className="font-semibold px-4 py-2">有効期限</th>
+                  <th className="font-semibold px-4 py-2 text-right">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pendingInvites.map(invite => {
+                  const expired = invite.expired;
+                  return (
+                    <tr key={invite.token} className="border-b border-border-light">
+                      <td className="px-4 py-3 text-sm text-text-main">
+                        <span className="block max-w-[300px] truncate" title={invite.email}>
+                          {invite.email}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-xs whitespace-nowrap">
+                        {expired ? (
+                          <span className="text-danger">期限切れ（再招待してください）</span>
+                        ) : (
+                          <span className="text-text-muted">{formatExpiry(invite.expiresAt)} まで</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex justify-end gap-2">
+                          {!expired && (
+                            <button
+                              type="button"
+                              onClick={() => copyToClipboard(buildInviteUrl(invite.token), invite.token)}
+                              className="text-text-muted hover:text-text-main flex items-center gap-1 text-xs p-1"
+                              title="招待リンクをコピー"
+                            >
+                              {copiedToken === invite.token ? <Check size={16} className="text-primary" /> : <Copy size={16} />}
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleRevokeInvite(invite.token)}
+                            className="text-danger hover:brightness-75 flex items-center gap-1 text-xs p-1"
+                            title="招待を取り消す"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Invite Member Modal */}
+      <Modal
+        isOpen={isInviteOpen}
+        onClose={closeInviteModal}
+        title="ユーザー招待"
+        size="lg"
+      >
+        {issuedInvite ? (
+          // 発行済み: メール送信結果を案内し、招待リンクをコピーできるようにする
+          <div className="flex flex-col gap-6">
+            {issuedInvite.emailStatus === 'sent' && (
+              <p className="text-sm text-text-main">
+                {issuedInvite.email} に招待メールを送信しました。メールが届かない場合は、下の招待リンクを直接共有してください（有効期限: 7日間）。
+              </p>
+            )}
+            {issuedInvite.emailStatus === 'skipped' && (
+              <p className="text-sm text-text-main">
+                メール送信が未設定のため、招待メールは送信されていません。招待リンクをコピーして招待する方に共有してください（有効期限: 7日間）。
+                <br />
+                招待メールを自動で送りたい場合は{' '}
+                <a
+                  href={INVITE_EMAIL_SETUP_DOC_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary underline underline-offset-2"
+                >
+                  セットアップガイド「2-C. 招待メールの設定」
+                </a>
+                {' '}の手順で設定してください。
+              </p>
+            )}
+            {issuedInvite.emailStatus === 'failed' && (
+              <p className="text-sm text-danger">
+                招待メールの送信に失敗しました。招待リンクをコピーして招待する方に共有してください（有効期限: 7日間）。
+              </p>
+            )}
+            {/* localhost 構成では、リンクを共有しても相手のPCでは開けない（相手自身のPCを指すため） */}
+            {isLocalOnlyInviteUrl(issuedInvite.url) && (
+              <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning-soft px-4 py-3 text-sm text-warning">
+                <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+                <span>
+                  このリンクは、いまお使いのパソコンの中でしか開けません。リンクに含まれる localhost（127.0.0.1）は
+                  「リンクを開いた人自身のパソコン」を指すため、メールやチャットで送っても相手の環境では表示できません。
+                  他の方を招待するには、他のパソコンからアクセスできる URL での運用（クラウド運用など）が必要です。
+                </span>
+              </div>
+            )}
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                readOnly
+                value={issuedInvite.url}
+                onFocus={(e) => e.currentTarget.select()}
+                className="gt-field flex-1 text-xs"
+              />
+              <button
+                type="button"
+                onClick={() => copyToClipboard(issuedInvite.url, 'issued')}
+                className="gt-btn flex items-center gap-1 text-xs whitespace-nowrap"
+              >
+                {copiedToken === 'issued' ? <Check size={16} className="text-primary" /> : <Copy size={16} />}
+                コピー
+              </button>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={closeInviteModal} className="gt-btn-primary">閉じる</button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-6">
+            <div className="flex flex-col gap-2">
+              <label htmlFor="inviteEmail" className="text-sm font-semibold text-text-muted">メールアドレス</label>
+              <input
+                id="inviteEmail"
+                type="email"
+                value={inviteForm.email}
+                onChange={e => setInviteForm(prev => ({ ...prev, email: e.target.value }))}
+                className="gt-field"
+                placeholder="例: name@example.co.jp"
+              />
+            </div>
+            <div className="flex flex-col gap-2">
+              <label htmlFor="inviteRole" className="text-sm font-semibold text-text-muted">ロール</label>
+              <select
+                id="inviteRole"
+                value={inviteForm.role}
+                onChange={e => {
+                  const role = e.target.value;
+                  if (isAssignableMemberRole(role)) setInviteForm(prev => ({ ...prev, role }));
+                }}
+                className="gt-field"
+              >
+                {ASSIGNABLE_MEMBER_ROLES.map(role => (
+                  <option key={role} value={role}>
+                    {memberRoleLabel(role)}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-text-muted">招待を受けた人は、ここで選んだロールになります。</p>
+              <ul className="m-0 flex list-none flex-col gap-1 p-0 text-xs text-text-muted">
+                {ROLE_GUIDE.map(line => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            </div>
+            <div className="flex justify-end gap-2 mt-6 pt-6">
+              <button
+                type="button"
+                onClick={handleSendInvite}
+                disabled={isInviting}
+                className="gt-btn-primary flex items-center gap-2"
+              >
+                {isInviting ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                招待リンクを発行
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Save Confirmation Modal */}
+      <Modal
+        isOpen={isSaveModalOpen}
+        onClose={() => setIsSaveModalOpen(false)}
+        title="変更の保存確認"
+      >
+        <div className="flex flex-col gap-6">
+          <p className="text-sm text-text-main">
+            {describePendingChanges(pendingChanges)}
+          </p>
+          {demotesSelf && (
+            <p className="text-sm text-warning" role="alert">
+              あなたは管理者でなくなり、ロールの変更やメンバーの削除ができなくなります。
+            </p>
+          )}
+          <div className="flex justify-end gap-2">
+            <button type="button" onClick={() => setIsSaveModalOpen(false)} className="gt-btn" disabled={isSaving}>
+              キャンセル
+            </button>
+            <button
+              type="button"
+              onClick={confirmSaveChanges}
+              className="gt-btn-primary flex items-center gap-2"
+              disabled={isSaving}
+            >
+              {isSaving && <Loader2 size={16} className="animate-spin" />}
+              保存
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <Modal
+        isOpen={isDeleteModalOpen}
+        onClose={() => {
+          setIsDeleteModalOpen(false);
+          setMemberToDelete(null);
+        }}
+        title="メンバーの削除確認"
+      >
+        <div className="flex flex-col gap-6">
+          <p className="text-sm text-text-main">
+            このメンバーを削除してもよろしいですか？（「変更を保存」で確定するまで実行されません）
+          </p>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setIsDeleteModalOpen(false);
+                setMemberToDelete(null);
+              }}
+              className="gt-btn"
+            >
+              キャンセル
+            </button>
+            <button
+              type="button"
+              onClick={confirmDeleteMember}
+              className="gt-btn-primary bg-danger hover:bg-danger/90"
+            >
+              削除
+            </button>
+          </div>
+        </div>
+      </Modal>
+    </Card>
+  );
+};

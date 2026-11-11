@@ -1,0 +1,1204 @@
+/*
+ * フォントは next/font/google（layout.tsx）経由で読み込み、CSS変数
+ * --font-instrument-sans に接続する。外部 <link> / @import は使わない。
+ */
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+/* shadcn コンポーネントの dark: をメディアクエリではなく .dark クラスに縛る。
+   このアプリにダークモードは無く .dark を付ける箇所も無いので、dark: は常に無効になる
+   （これを外すと OS のダークモード設定で dark: が発火してしまう）。 */
+@custom-variant dark (&:is(.dark *));
+
+/* ==========================================================================
+   デザイントークン（OpenStock Japan）
+   中立グレー基調＋ブランド色1色（落ち着いたネイビー）。角丸・影・グラデーションは最小限。
+   値はデザイン正（管理画面デザインシステム）から抽出。
+
+   Tailwind v4 では @theme が唯一の定義場所。ここに書いた --color-primary は
+   1) `bg-primary` `text-primary` などのユーティリティを生成し、
+   2) :root の CSS 変数として出力されるので、素の CSS や recharts の色指定からは
+      `var(--color-primary)` で同じ値を参照できる。
+   （:root に別名の変数を重ねて定義しないこと。docs/architecture.md）
+   ========================================================================== */
+@theme {
+  /* Primary（アクセントは1色だけ） */
+  --color-primary: #2d4b8e;
+  --color-primary-dark: #1f3566;     /* accent-ink: hover の押し込み・強調 */
+  --color-primary-light: #e8edf7;    /* accent-soft: 淡いネイビーの面 */
+  --color-primary-bg: #e8edf7;
+  --color-primary-contrast: #ffffff;
+  --color-primary-ring: rgba(45, 75, 142, 0.24); /* フォーカスリング */
+
+  /* Semantic（soft = 淡背景、濃色は文字色） */
+  --color-success: #1d6b48;
+  --color-success-soft: #e3f2e8;
+  --color-warning: #8a6116;
+  --color-warning-soft: #fbf1dc;
+  --color-danger: #b4532f;
+  --color-danger-light: #f8e9e2;
+  --color-info: #3d5a73;
+  --color-info-soft: #e8eef4;
+
+  /* Neutrals - 中立グレーのサーフェス */
+  --color-bg-main: #f5f6f9;
+  --color-bg-card: #ffffff;
+  --color-bg-subtle: #fafbfc;        /* 一段沈めた面（hover・インセットパネル） */
+  --color-bg-sidebar: #fbfbfd;
+  --color-bg-hover: rgba(20, 26, 38, 0.045); /* サイドバー等、面を持たない行の hover */
+  --color-text-main: #141a26;
+  --color-text-heading: #141a26;
+  --color-text-body: #3b4354;        /* 見出しほど強くない本文・テーブルのセル */
+  --color-text-muted: #667085;
+  --color-text-subtle: #717a89;      /* 補足・表の見出し。白地で 4.4:1 を保つ */
+  --color-text-label: #717a89;
+  --color-border: rgba(20, 26, 38, 0.08);
+  --color-border-light: rgba(20, 26, 38, 0.06);
+  --color-border-strong: rgba(20, 26, 38, 0.14); /* ボタン・入力の罫線 */
+
+  /* ロゴの中心の円と同じ朱。ロゴ以外では、注目させたい 1 点にだけ使う */
+  --color-brand-accent: #e2533f;
+
+  /* Chart */
+  --color-chart-orange: #d1a56d;
+  --color-chart-yellow: #c79a5c;
+  --color-chart-gray: #8a93a3;
+  --color-chart-indigo: #1b2540;       /* 比較用の濃い線 */
+  --color-chart-pink: #b4532f;
+  --color-chart-rose: #b4532f;
+  --color-chart-teal: #8ba3cf;
+  --color-chart-gray-light: #c3c9d4;   /* その他/残余の中立色 */
+  --color-chart-track: #eceff4;        /* バー/プログレスのトラック地 */
+
+  /* Auth Panel（認証画面の濃色ブランドパネル専用）
+     パネル地は primary。その上に載せる文字・チップ・装飾円は明るい側の色になり、
+     ペーパー地トークンに対応する値が無いため専用トークンを持つ（AuthLayout.tsx で参照）。 */
+  --color-auth-panel-text: #eef1f8;
+  --color-auth-panel-text-soft: rgba(238, 241, 248, 0.78);
+  --color-auth-panel-text-body: rgba(238, 241, 248, 0.9);
+  --color-auth-panel-text-faint: rgba(238, 241, 248, 0.55);
+  --color-auth-panel-text-label: rgba(238, 241, 248, 0.6);
+  --color-auth-panel-accent: #b9cdf7;                 /* 要点リストのアイコン */
+  --color-auth-panel-chip: rgba(255, 255, 255, 0.1);  /* ロゴ・アイコンの下地 */
+  --color-auth-panel-circle-1: rgba(255, 255, 255, 0.04);  /* 装飾円（右上） */
+  --color-auth-panel-circle-2: rgba(255, 255, 255, 0.035); /* 装飾円（左下） */
+  --color-auth-panel-footer: rgba(238, 241, 248, 0.5);
+
+  /* Typography — 実フォントは next/font/google（layout.tsx）が --font-instrument-sans に注入する。
+     ここではそれを先頭に、日本語はシステムフォントへフォールバックさせる。
+     --font-serif は見出し（日本語）・ロゴ・数値（英数字）で使うトークンだが、
+     UI全体をサンス体で統一するため本文（--font-sans）と同じ内容にしている。 */
+  --font-sans: var(--font-instrument-sans), system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', Meiryo, sans-serif;
+  --font-serif: var(--font-sans);
+
+  /* Shadows（気づかない程度に留める）。shadow-sm / shadow-md / shadow-lg ユーティリティを
+     Tailwind 既定値からデザイン正の値へ置き換える。 */
+  --shadow-sm: 0 1px 2px rgba(20, 26, 38, 0.04), 0 1px 1px rgba(20, 26, 38, 0.03);
+  --shadow-md: 0 8px 24px -12px rgba(20, 26, 38, 0.28), 0 1px 2px rgba(20, 26, 38, 0.06);
+  --shadow-lg: 0 18px 44px -14px rgba(20, 26, 38, 0.3);
+
+  /* Radii - shadcn と同じスケール。ボタン/入力は rounded-md（8px）、カードは rounded-lg（10px）。
+     Tailwind 既定（md 6px / lg 8px）より一段大きい値に揃える。タグ/ピルは rounded-full。 */
+  --radius-sm: 0.375rem;   /* 6px */
+  --radius-md: 0.5rem;     /* 8px */
+  --radius-lg: 0.625rem;   /* 10px */
+  --radius-card: 0.75rem;  /* 12px。カード */
+  --radius-xl: 0.875rem;   /* 14px */
+  --radius-2xl: 1.125rem;
+  --radius-3xl: 1.375rem;
+  --radius-4xl: 1.625rem;
+
+  /* --- shadcn/ui セマンティックトークン ---------------------------------
+     src/components/ui の shadcn コンポーネントが参照する名前。値は上のトークンと同じ色。
+     shadcn 標準は :root + @theme inline の 2 段だが、ダークモードが無いので @theme に直接書く。 */
+  --color-background: #f5f6f9;            /* = bg-main */
+  --color-foreground: #141a26;            /* = text-main */
+  --color-card: #ffffff;
+  --color-card-foreground: #141a26;
+  --color-popover: #ffffff;
+  --color-popover-foreground: #141a26;
+  --color-primary-foreground: #ffffff;    /* = primary-contrast */
+  --color-secondary: #eceff4;             /* 中立の淡い面（= chart-track） */
+  --color-secondary-foreground: #141a26;
+  --color-muted: #fafbfc;                 /* = bg-subtle。hover の面 */
+  --color-muted-foreground: #667085;      /* = text-muted */
+  --color-accent: #eceff4;                /* メニュー項目などの選択面 */
+  --color-accent-foreground: #141a26;
+  --color-destructive: #b4532f;           /* = danger */
+  --color-input: rgba(20, 26, 38, 0.14);  /* = border-strong。入力・ボタンの罫線 */
+  --color-ring: #2d4b8e;                  /* フォーカスリング（primary） */
+  --color-chart-1: #2d4b8e;               /* = primary */
+  --color-chart-2: #8ba3cf;               /* = chart-teal */
+  --color-chart-3: #d1a56d;               /* = chart-orange */
+  --color-chart-4: #1b2540;               /* = chart-indigo */
+  --color-chart-5: #c3c9d4;               /* = chart-gray-light */
+  --color-sidebar: #fbfbfd;               /* = bg-sidebar */
+  --color-sidebar-foreground: #3b4354;    /* = text-body */
+  --color-sidebar-primary: #2d4b8e;
+  --color-sidebar-primary-foreground: #ffffff;
+  --color-sidebar-accent: rgba(20, 26, 38, 0.045); /* = bg-hover */
+  --color-sidebar-accent-foreground: #141a26;
+  --color-sidebar-border: rgba(20, 26, 38, 0.08);
+  --color-sidebar-ring: #2d4b8e;
+  --font-heading: var(--font-sans);
+}
+
+/* 要素リセット / base 要素スタイルは @layer base に入れる。
+   Tailwind v4 では全ユーティリティが @layer utilities に入るため、
+   アンレイヤード（層外）で書くと `*{padding:0}` や `button{background:none}` が
+   `px-4` や `bg-primary` などのユーティリティを常に上書きしてしまう。
+   base 層に入れることで utilities 層のユーティリティが正しく勝つ。 */
+@layer base {
+  *, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: var(--color-bg-main);
+    color: var(--color-text-main);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    /* 日本語の文を、文字の途中ではなく文節の切れ目で折り返す（「…があ／る」「30,000,000／円」のような 1 文字残りを減らす）。
+       対応していないブラウザでは今までどおりの折り返しになる。
+       文節が幅に入りきらないときは途中で折り返してよい（anywhere）。こうしておくと、列や箱の最小の幅は今までと変わらない。 */
+    word-break: auto-phrase;
+    overflow-wrap: anywhere;
+    @apply bg-background text-foreground;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  button {
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    font: inherit;
+    color: inherit;
+  }
+
+  ul, ol {
+    list-style: none;
+  }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+  }
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+
+/* 共通パーツ・レイアウトは @layer components に入れる。
+   Tailwind v4 のレイヤー順は base < components < utilities なので、
+   `gt-btn-primary bg-danger` や `gt-field w-[140px]` のように
+   ユーティリティで個別に上書きできる（!important 不要）。 */
+@layer components {
+  /* ==========================================================================
+     gt-* 共通パーツ（管理画面デザイン正）
+     カード・テーブル・フォーム・ボタン・メニューの見た目を1か所に集約する。
+     各画面はここのクラスを使い、同じ寸法・罫線・影を個別に書き直さないこと。
+     色はすべて @theme のトークン経由（docs/architecture.md）。
+     ========================================================================== */
+
+  /* --- カード ------------------------------------------------------------ */
+  .gt-card {
+    background-color: var(--color-bg-card);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-sm);
+    padding: 20px 22px;
+  }
+
+  /* 末尾がテーブルのカード。最終行の下の余白を表が兼ねるため下を詰める */
+  .gt-card-table {
+    padding: 20px 22px 10px;
+  }
+
+  .gt-card-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 20px;
+  }
+
+  .gt-card-title {
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1.4;
+    color: var(--color-text-heading);
+    letter-spacing: -0.005em;
+  }
+
+  .gt-card-sub {
+    margin-top: 4px;
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--color-text-muted);
+  }
+
+  /* --- 画面見出し（本文先頭の h1 + 説明 + 操作群）------------------------ */
+  .gt-page-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+    margin-bottom: 24px;
+  }
+
+  .gt-page-title {
+    font-size: 24px;
+    font-weight: 700;
+    line-height: 1.3;
+    letter-spacing: -0.015em;
+    color: var(--color-text-heading);
+  }
+
+  .gt-page-sub {
+    margin-top: 6px;
+    max-width: 760px;
+    font-size: 13.5px;
+    line-height: 1.65;
+    color: var(--color-text-muted);
+  }
+
+  .gt-page-heading-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: none;
+  }
+
+  /* --- テーブル ----------------------------------------------------------
+     列の幅が足りないときの決まり（画面ごとに別のやり方をしない）:
+     - セルは既定で折り返さない。数・日付・氏名・短いラベルが 1〜2 文字ずつ縦に割れるのを防ぐ。
+     - 文章や長い名称を入れるセルにだけ .gt-wrap-sm / .gt-wrap / .gt-wrap-lg を付ける。
+       折り返してよい代わりに最小の幅を持ち、幅が足りなくてもそれより細くはならない。
+     - 2 行目に置く補足（フリガナなど）で列を広げたくないものは .gt-cell-clip（入りきらない分は … で切る）。
+     - 表は .gt-table-scroll で包む。列の合計が入りきらないときは表だけが横にスクロールし、
+       続きがある側の端に影を出す（ページ全体は横にはみ出させない）。 */
+  .gt-table-scroll {
+    /* 表の中の、位置を absolute にした要素（読み上げ専用の見出しなど）をこの枠の中に留める。
+       これが無いと、横に隠れている分だけページ全体が横に伸びる */
+    position: relative;
+    max-width: 100%;
+    overflow-x: auto;
+    /* 端の影。上の 2 枚（local）は内容と一緒に動く覆いで、端まで来ると影（scroll）を隠す。
+       カード以外の面に置くときは --gt-table-bg にその面の色を渡す */
+    background:
+      linear-gradient(to right, var(--gt-table-bg, var(--color-bg-card)) 40%, transparent) left / 28px 100% no-repeat local,
+      linear-gradient(to left, var(--gt-table-bg, var(--color-bg-card)) 40%, transparent) right / 28px 100% no-repeat local,
+      linear-gradient(to right, rgba(22, 35, 63, 0.12), transparent) left / 12px 100% no-repeat scroll,
+      linear-gradient(to left, rgba(22, 35, 63, 0.12), transparent) right / 12px 100% no-repeat scroll;
+  }
+
+  .gt-table {
+    width: 100%;
+  }
+
+  .gt-table th,
+  .gt-table td {
+    white-space: nowrap;
+  }
+
+  .gt-table th {
+    text-align: left;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--color-text-subtle);
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--color-border-strong);
+  }
+
+  .gt-table td {
+    padding: 12px;
+    border-bottom: 1px solid var(--color-border);
+    font-size: 13.5px;
+    line-height: 1.5;
+    color: var(--color-text-heading);
+    vertical-align: middle;
+  }
+
+  /* 行の見出し（tbody の中の th）は、ふつうのセルと同じ罫線にする */
+  .gt-table tbody th {
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .gt-table > tbody:last-child > tr:last-child > th {
+    border-bottom: none;
+  }
+
+  /* 折り返してよいセル（または、セルの中の文章のかたまり）。最小の幅は文字数で決める
+     （セルに直接付けたときは、セルの左右の余白を含む幅になる） */
+  .gt-table .gt-wrap-sm,
+  .gt-table .gt-wrap,
+  .gt-table .gt-wrap-lg {
+    white-space: normal;
+  }
+
+  .gt-table .gt-wrap-sm {
+    min-width: 9em;
+  }
+
+  .gt-table .gt-wrap {
+    min-width: 14em;
+  }
+
+  .gt-table .gt-wrap-lg {
+    min-width: 22em;
+  }
+
+  /* セルの 2 行目の補足。自分では列を広げず（幅 0 として数えさせ、実際の幅はセルに合わせる）、入りきらない分は … で切る。
+     全文は title 属性で読めるようにすること */
+  .gt-cell-clip {
+    display: block;
+    width: 0;
+    min-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* 両端の列はカードの見出しの位置に寄せる（表だけ内側に入り込んで見えないように） */
+  .gt-table th:first-child,
+  .gt-table td:first-child {
+    padding-left: 6px;
+  }
+
+  .gt-table th:last-child,
+  .gt-table td:last-child {
+    padding-right: 6px;
+  }
+
+  /* 最後の行の下には罫線を引かない（カードの縁と二重に見えるため）。合計行（tfoot）は上を太めの罫線で区切る */
+  .gt-table > tbody:last-child > tr:last-child > td,
+  .gt-table > tfoot > tr:last-child > td {
+    border-bottom: none;
+  }
+
+  .gt-table > tfoot > tr:first-child > td {
+    border-top: 1px solid var(--color-border-strong);
+    font-weight: 600;
+  }
+
+  .gt-table .gt-num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* 行クリックで遷移・絞り込みする表。hover で面を沈め、右端の矢印を出す */
+  .gt-row-link {
+    cursor: pointer;
+    transition: background-color 0.12s;
+  }
+
+  .gt-row-link:hover {
+    background-color: var(--color-bg-subtle);
+  }
+
+  .gt-row-arrow {
+    opacity: 0.4;
+    transition: opacity 0.12s, transform 0.12s;
+  }
+
+  .gt-row-link:hover .gt-row-arrow {
+    opacity: 1;
+    transform: translateX(2px);
+  }
+
+  /* 行内の実ボタン（キーボード操作用）にフォーカスがあるときも hover と同じく行を沈める。
+     キーボード利用者が「いまどの行にいるか」を行全体で把握できるようにするため */
+  .gt-row-link:focus-within {
+    background-color: var(--color-bg-subtle);
+  }
+
+  /* 行内の絞り込み切替ボタン。見た目はセル内テキストのままにし、
+     キーボードフォーカス時だけ primary の輪郭を出す */
+  .gt-row-toggle {
+    border-radius: 6px;
+    text-align: left;
+    color: inherit;
+    outline: none;
+  }
+
+  .gt-row-toggle:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 3px;
+  }
+
+  /* 絞り込み動作を表す行末アイコン。遷移用の .gt-row-arrow と違い横移動はさせない */
+  .gt-row-filter-icon {
+    opacity: 0.4;
+    transition: opacity 0.12s;
+  }
+
+  .gt-row-link:hover .gt-row-filter-icon,
+  .gt-row-link:focus-within .gt-row-filter-icon,
+  .gt-row-filter-icon.is-active {
+    opacity: 1;
+  }
+
+  /* 行が無いときの案内。セル（td）に付けても効くよう、.gt-table td より強い書き方にしている */
+  .gt-table-empty,
+  .gt-table td.gt-table-empty {
+    padding: 28px 12px;
+    text-align: center;
+    font-size: 13px;
+    color: var(--color-text-subtle);
+    white-space: normal;
+  }
+
+  /* --- フォーム部品 ------------------------------------------------------ */
+  .gt-field {
+    width: 100%;
+    height: 40px;
+    padding: 0 12px;
+    border: 1px solid var(--color-border-strong);
+    border-radius: 9px;
+    background-color: var(--color-bg-card);
+    box-shadow: var(--shadow-sm);
+    font-size: 13px;
+    color: var(--color-text-main);
+    outline: none;
+    transition: box-shadow 0.12s, border-color 0.12s;
+  }
+
+  .gt-field:focus {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px var(--color-primary-ring);
+  }
+
+  .gt-field::placeholder {
+    color: var(--color-text-subtle);
+  }
+
+  /* 編集できない欄（他の入力から自動で決まる値）。フォーカスは当たり読み上げもされるが、
+     編集できないことを面の色で示す。disabled と違いタブ順から外れないため、
+     読み上げ利用者も「自動で決まる」補足（aria-describedby）に辿り着ける。 */
+  .gt-field[readonly] {
+    background-color: var(--color-bg-subtle);
+    color: var(--color-text-muted);
+    box-shadow: none;
+  }
+
+  /* ネイティブの ▾ を消して、ブラウザ差のないシェブロンを背景で描く select。
+     data URI に CSS 変数は渡せないため、stroke は --text-subtle と同値の #8a93a3 を
+     直接埋め込んでいる（docs/architecture.md の例外。色を変えるときは両方を直すこと）。 */
+  .gt-field-select {
+    padding-right: 34px;
+    font-weight: 600;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,<svg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%20fill='none'%20stroke='%238a93a3'%20stroke-width='2'%20stroke-linecap='round'%20stroke-linejoin='round'><path%20d='m6%209%206%206%206-6'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    background-size: 13px 13px;
+  }
+
+  .gt-field-label {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--color-text-body);
+  }
+
+  /* --- ボタン ------------------------------------------------------------ */
+  .gt-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 38px;
+    padding: 0 13px;
+    border: 1px solid var(--color-border-strong);
+    border-radius: 9px;
+    background-color: var(--color-bg-card);
+    box-shadow: var(--shadow-sm);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--color-text-main);
+    white-space: nowrap;
+    transition: background-color 0.12s;
+  }
+
+  .gt-btn:hover:not(:disabled) {
+    background-color: var(--color-bg-subtle);
+  }
+
+  .gt-btn-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 38px;
+    padding: 0 16px;
+    border: none;
+    border-radius: 9px;
+    background-color: var(--color-primary);
+    color: var(--color-primary-contrast);
+    font-size: 13px;
+    font-weight: 600;
+    white-space: nowrap;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), var(--shadow-sm);
+    transition: background-color 0.12s;
+  }
+
+  .gt-btn-primary:hover:not(:disabled) {
+    background-color: var(--color-primary-dark);
+  }
+
+  .gt-btn:disabled,
+  .gt-btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  /* ヘッダー右肩などの正方アイコンボタン */
+  .gt-iconbtn {
+    width: 34px;
+    height: 34px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9px;
+    border: 1px solid transparent;
+    color: var(--color-text-body);
+    transition: background-color 0.12s, border-color 0.12s;
+  }
+
+  .gt-iconbtn:hover {
+    background-color: var(--color-bg-subtle);
+    border-color: var(--color-border-strong);
+  }
+
+  /* --- 一覧のタブ（カード内で対象の群を切り替える）------------------------ */
+  .gt-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 16px;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .gt-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 14px;
+    border: none;
+    border-bottom: 2px solid transparent;
+    background-color: transparent;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+    transition: color 0.12s, border-color 0.12s;
+  }
+
+  .gt-tab:hover {
+    color: var(--color-text-main);
+  }
+
+  .gt-tab-active {
+    border-bottom-color: var(--color-primary);
+    color: var(--color-primary);
+    font-weight: 600;
+  }
+
+  /* 件数バッジ。選択中のタブでは本文色に合わせて浮かせる */
+  .gt-tab-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 22px;
+    height: 18px;
+    padding: 0 6px;
+    border-radius: 9999px;
+    background-color: var(--color-bg-subtle);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--color-text-muted);
+  }
+
+  .gt-tab-active .gt-tab-count {
+    background-color: var(--color-primary-light);
+    color: var(--color-primary);
+  }
+
+  /* --- 一覧の絞り込み（カード内に一段沈めて置く帯）------------------------ */
+  .gt-filter-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 14px;
+    margin-top: 16px;
+    padding: 16px;
+    background-color: var(--color-bg-subtle);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+  }
+
+  /* 幅は固定して、絞り込みが増減しても各項目の位置が揃うようにする */
+  .gt-filter-field {
+    display: flex;
+    flex-direction: column;
+    flex: 0 0 176px;
+    min-width: 0;
+  }
+
+  /* 検索欄など、余った幅を取る項目 */
+  .gt-filter-field-grow {
+    flex: 1 1 220px;
+  }
+
+  /* --- ピル（増減率・ステータス）----------------------------------------- */
+  .gt-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 24px;
+    padding: 0 9px;
+    border-radius: 9999px;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .gt-pill-sm {
+    height: 22px;
+    font-size: 11.5px;
+  }
+
+  .gt-pill-good {
+    background-color: var(--color-success-soft);
+    color: var(--color-success);
+  }
+
+  .gt-pill-bad {
+    background-color: var(--color-danger-light);
+    color: var(--color-danger);
+  }
+
+  .gt-pill-warn {
+    background-color: var(--color-warning-soft);
+    color: var(--color-warning);
+  }
+
+  .gt-pill-info {
+    background-color: var(--color-info-soft);
+    color: var(--color-info);
+  }
+
+  .gt-pill-neutral {
+    background-color: var(--color-bg-subtle);
+    color: var(--color-text-muted);
+  }
+
+  .gt-pill-accent {
+    background-color: var(--color-primary-light);
+    color: var(--color-primary-dark);
+  }
+
+  /* --- ドロップダウンメニュー -------------------------------------------- */
+  .gt-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    z-index: 40;
+    background-color: var(--color-bg-card);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md);
+    padding: 5px;
+  }
+
+  .gt-menu-label {
+    font-size: 11px;
+    color: var(--color-text-subtle);
+    padding: 6px 10px 5px;
+  }
+
+  .gt-menuitem {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    text-align: left;
+    min-height: 32px;
+    padding: 0 10px;
+    border-radius: 7px;
+    font-size: 12.5px;
+    color: var(--color-text-body);
+    transition: background-color 0.1s;
+  }
+
+  .gt-menuitem:hover {
+    background-color: var(--color-bg-subtle);
+  }
+
+  .gt-menuitem-selected {
+    color: var(--color-primary-dark);
+    font-weight: 600;
+  }
+
+  /* --- 12カラムグリッドの割付 -------------------------------------------- */
+  /* 既定は全幅。1120px 以上でデザイン正の 8 / 4 分割にする。 */
+  .gt-col-8,
+  .gt-col-4 {
+    grid-column: span 12 / span 12;
+  }
+
+  @media (min-width: 1120px) {
+    .gt-col-8 {
+      grid-column: span 8 / span 8;
+    }
+
+    .gt-col-4 {
+      grid-column: span 4 / span 4;
+    }
+  }
+
+  /* --- サイドバー -------------------------------------------------------- */
+  .gt-nav {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    width: 100%;
+    text-align: left;
+    height: 36px;
+    padding: 0 11px;
+    border-radius: var(--radius-md);
+    font-size: 13.5px;
+    color: var(--color-text-body);
+    transition: background-color 0.12s;
+  }
+
+  .gt-nav:hover {
+    background-color: var(--color-bg-hover);
+  }
+
+  /* 選択中は白い面＋罫線＋影で「浮いた」状態にする（塗りつぶしピルは使わない） */
+  .gt-nav-active {
+    background-color: var(--color-bg-card);
+    border: 1px solid var(--color-border);
+    box-shadow: var(--shadow-sm);
+    font-weight: 600;
+    color: var(--color-text-heading);
+    padding: 0 10px;
+  }
+
+  .gt-nav-active:hover {
+    background-color: var(--color-bg-card);
+  }
+
+  .gt-nav-group-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: var(--color-text-subtle);
+    padding: 0 11px 8px;
+  }
+
+  .gt-nav-sm {
+    height: 34px;
+    font-size: 13px;
+    color: var(--color-text-muted);
+  }
+
+  /* .gt-nav-sm は上の .gt-nav-active より後ろにあり文字色を上書きしてしまうため、選択中は見出し色を優先する */
+  .gt-nav-sm.gt-nav-active {
+    color: var(--color-text-heading);
+  }
+
+  /* Base Layout（app/layout.tsx の .app-root で使用） */
+  .app-root {
+    display: flex;
+    min-height: 100vh;
+  }
+
+  .sidebar {
+    width: 240px;
+    background-color: var(--color-bg-sidebar);
+    border-right: 1px solid var(--color-border);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+  }
+
+  .main-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  /* アプリ上部の細いバー。左にパンくず、右にアイコン操作だけを置く（デザイン正）。
+     画面見出しはここではなく本文先頭の .gt-page-heading が持つ。 */
+  .header {
+    height: 56px;
+    flex: none;
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    /* スクロールしても本文の上に残す。下の内容がうっすら透ける程度にぼかす */
+    background-color: color-mix(in srgb, var(--color-bg-main) 86%, transparent);
+    backdrop-filter: saturate(1.4) blur(10px);
+    -webkit-backdrop-filter: saturate(1.4) blur(10px);
+    border-bottom: 1px solid var(--color-border);
+    display: flex;
+    align-items: center;
+    padding: 0 32px;
+    justify-content: space-between;
+  }
+
+  /* 本文の外側の余白。(app)/layout.tsx が全画面で 1 回だけ付ける。
+     各画面はこの内側に置かれるので、自分では外側の余白を持たない（二重になるため）。
+     スクロールするのはウィンドウ（この要素自体はスクロールしない）。 */
+  .page-content {
+    flex: 1;
+    width: 100%;
+    max-width: 1440px;
+    margin: 0 auto;
+    padding: 28px 32px 72px;
+  }
+
+  /* ノート PC ほどの幅では、表に使える幅を優先して左右の余白を詰める */
+  @media (max-width: 1400px) {
+    .header {
+      padding: 0 24px;
+    }
+
+    .page-content {
+      padding: 24px 24px 64px;
+    }
+  }
+
+  /* 各画面のいちばん外側（余白は持たない）。カード同士の間隔だけをそろえる */
+  .page-body {
+    min-width: 0;
+  }
+
+  /* 設定などの、読み物に近い幅の狭い画面 */
+  .page-body-narrow {
+    max-width: 920px;
+    margin: 0 auto;
+  }
+
+  /* ==========================================================================
+     狭い画面のレイアウト
+     1024px 以下ではサイドバーをドロワー化する（タブレットや、ウィンドウを半分にした PC で、
+     表に使える幅を確保するため）。
+     - .sidebar は画面外（translateX(-100%)）へ退避し、.sidebar-open で表示
+     - 開閉トグル（.sidebar-toggle）と背面スクリム（.sidebar-backdrop)は
+       Sidebar コンポーネントが描画し、それより広い画面では CSS で非表示にする
+     768px 以下ではさらに、本文の余白を詰め、見出しと操作を縦に積む。
+     ========================================================================== */
+
+  /* ハンバーガートグルとバックドロップはドロワーのときだけ。広い画面では出さない */
+  .sidebar-toggle {
+    display: none;
+  }
+
+  .sidebar-backdrop {
+    display: none;
+  }
+
+  @media (max-width: 1024px) {
+    .sidebar {
+      position: fixed;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      /* top/bottom 指定で高さを決める（モバイルブラウザのURLバー伸縮に追随） */
+      height: auto;
+      z-index: 950; /* バックドロップ(900)より上、モーダル(1000)より下 */
+      transform: translateX(-100%);
+      transition: transform 0.25s ease;
+    }
+
+    .sidebar.sidebar-open {
+      transform: translateX(0);
+      box-shadow: var(--shadow-lg);
+    }
+
+    .sidebar-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: fixed;
+      /* 高さ 56px の上部バーの中央に置く */
+      top: 8px;
+      left: 16px;
+      width: 40px;
+      height: 40px;
+      border-radius: var(--radius-lg);
+      background-color: var(--color-bg-card);
+      border: 1px solid var(--color-border);
+      color: var(--color-text-heading);
+      box-shadow: var(--shadow-sm);
+      z-index: 960; /* ドロワーより上に置き、開いている間は閉じるボタンとして機能 */
+      transition: left 0.25s ease;
+    }
+
+    /* ドロワー展開中はボタンをドロワーの右隣へ移動し、閉じる操作（×）を提供する */
+    .sidebar-toggle.sidebar-toggle-open {
+      left: calc(240px + 12px);
+    }
+
+    .sidebar-backdrop {
+      display: block;
+      position: fixed;
+      inset: 0;
+      /* 半透明スクリム。.modal-overlay と同じ黒ベースの半透明（トークン外の例外） */
+      background-color: rgba(0, 0, 0, 0.45);
+      z-index: 900;
+      animation: fadeIn 0.2s ease-out;
+    }
+
+    /* 左の余白はハンバーガーを避ける */
+    .header {
+      padding-left: 4.5rem;
+    }
+  }
+
+  @media (max-width: 768px) {
+    /* ヘッダーは固定高をやめて折り返し可能に */
+    .header {
+      height: auto;
+      min-height: 56px;
+      flex-wrap: wrap;
+      gap: 0.5rem 1rem;
+      padding: 0.75rem 1rem 0.75rem 4.5rem;
+    }
+
+    .page-content {
+      padding: 20px 16px 56px;
+    }
+
+    /* 見出しと操作群は狭幅では縦積みにする */
+    .gt-page-heading {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .gt-page-heading-actions {
+      flex-wrap: wrap;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sidebar,
+    .sidebar-toggle {
+      transition: none;
+    }
+  }
+
+  /* ペーパー地に馴染む控えめなスクロールバー（デザイン正の .gt-scroll 相当）。 */
+  /* height は横スクロール用。縦スクロールには影響しない。 */
+  .page-content::-webkit-scrollbar,
+  .gt-table-scroll::-webkit-scrollbar,
+  .gt-scroll::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  .page-content::-webkit-scrollbar-thumb,
+  .gt-table-scroll::-webkit-scrollbar-thumb,
+  .gt-scroll::-webkit-scrollbar-thumb {
+    background: #cfd4dd;
+    border-radius: 20px;
+    border: 3px solid var(--color-bg-main);
+  }
+
+  /* --- モーダル ------------------------------------------------------------ */
+  .modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    animation: fadeIn 0.2s ease-out;
+  }
+
+  .modal-content {
+    background-color: var(--color-bg-card);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    width: 95%;
+    max-width: 1200px;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @keyframes slideUp {
+    from { transform: translateY(20px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+
+  /* モーダルの入場アニメーション。 */
+  @keyframes modalScale {
+    from { transform: scale(0.97); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+  }
+
+  .modal-header {
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid var(--color-border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background-color: var(--color-bg-main);
+  }
+
+  .modal-body {
+    padding: 1.5rem;
+    overflow-y: auto;
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1.2fr 1fr;
+    gap: 2rem;
+  }
+
+  @media (max-width: 968px) {
+    .modal-body {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .modal-footer {
+    padding: 1rem 1.5rem;
+    border-top: 1px solid var(--color-border);
+    display: flex;
+    justify-content: flex-end;
+    gap: 1rem;
+    background-color: var(--color-bg-main);
+  }
+
+  /* --- トースト・アニメーション ----------------------------------------- */
+  .toast-container {
+    position: fixed;
+    bottom: 2rem;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 2000;
+    pointer-events: none;
+  }
+
+  .toast {
+    background-color: #1f2937;
+    color: white;
+    padding: 0.75rem 1.5rem;
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+    pointer-events: auto;
+    animation: slideInUp 0.3s cubic-bezier(0.16, 1, 0.3, 1), fadeOutToast 0.3s ease-out 4.7s forwards;
+  }
+
+  @keyframes slideInUp {
+    from { transform: translateY(100px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+
+  /* 右上固定トーストの入場アニメーション。 */
+  @keyframes slideIn {
+    from { transform: translateX(16px); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+  }
+
+  @keyframes fadeOutToast {
+    to { opacity: 0; transform: translateY(-20px); }
+  }
+
+  /* New row animation in table */
+  .new-table-row {
+    animation: highlightRow 2s ease-out;
+  }
+
+  @keyframes highlightRow {
+    0% { background-color: var(--color-primary-light); }
+    100% { background-color: transparent; }
+  }
+
+  /* Custom Simple Animations for Settings Page Components */
+  .animate-toast-in {
+    animation: slideInDown 0.2s ease-out forwards;
+  }
+
+  .animate-dropdown-in {
+    animation: slideInDownSmall 0.1s ease-out forwards;
+  }
+
+  @keyframes slideInDown {
+    from {
+      transform: translateY(-1rem);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+
+  @keyframes slideInDownSmall {
+    from {
+      transform: translateY(-0.25rem);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+
+  /* ==========================================================================
+     recharts のフォーカスリング
+     recharts v3 は accessibilityLayer が既定で有効になり、チャート svg だけでなく
+     内部の要素（バーやグループ等）もフォーカス可能になる。マウス操作時（:focus だが
+     :focus-visible ではない）はブラウザ標準の青い outline が残ってノイズになるため消す。
+     一方キーボード操作時（:focus-visible）は svg に限らずフォーカスされ得るすべての要素に
+     テーマ色のリングを出し、キーボード a11y を維持する。
+     ========================================================================== */
+  .recharts-wrapper :focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  .recharts-wrapper :focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+
+}

@@ -1,0 +1,20 @@
+# lefthook: Git フック管理（DX向上用。強制力の本丸は CI 側）
+# pre-commit: ステージした TS/TSX にだけ eslint --fix をかけて、CIが赤くなる前に整える。
+#   check-migrations: supabase/migrations/*.sql をステージしたときだけ、migration に DML（データ）が
+#   入っていないかを検査する（CI でも同じスクリプトが走る）。検査対象はステージ分に限らず
+#   ディレクトリ全体。ファイルを書き換えないので stage_fixed は付けない。
+#   check-ignored-sources: ソースのファイルが .gitignore に当たって、コミットから漏れていないかを確かめる
+#   （手元では動くのに、クローンした人の環境でだけ壊れる、という漏れを防ぐ）。
+pre-commit:
+  parallel: true
+  commands:
+    lint:
+      glob: "*.{ts,tsx}"
+      run: npx eslint --fix {staged_files}
+      stage_fixed: true
+    check-migrations:
+      glob: "supabase/migrations/*.sql"
+      run: node scripts/db/check-migrations.ts
+    # ソースのファイルが .gitignore に当たってコミットから漏れていないか（毎回確かめる。数十ミリ秒）
+    check-ignored-sources:
+      run: sh scripts/check-ignored-sources.sh

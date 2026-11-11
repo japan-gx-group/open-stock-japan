@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="512" height="512">
+  <!-- ブラウザのタブ・ホーム画面用のアイコン。明るいタブでも暗いタブでも見えるよう、ブランド色の角丸タイルに白のマークを置く。
+       形は public/logo-mark.svg・src/components/ui/logoPaths.ts と共通（変えるときは一緒に直す）。
+       変えたあとは node scripts/brand/build-favicon.mjs で favicon.ico と apple-icon.png を書き出し直す。 -->
+  <rect width="48" height="48" rx="11" fill="#2d4b8e"/>
+  <g transform="translate(5.76 5.76) scale(0.76)">
+    <path d="M38.018 12.081A18.4 18.4 0 1 1 7.117 31.315L13.658 29.253A11.6 11.6 0 1 0 33.280 17.040Z" fill="#ffffff" stroke="#ffffff" stroke-width="1.2" stroke-linejoin="round"/>
+    <path d="M5.974 27.691A18.4 18.4 0 0 1 17.759 6.691L19.407 13.348A11.6 11.6 0 0 0 12.515 25.629Z" fill="#c7d5f5" stroke="#c7d5f5" stroke-width="1.2" stroke-linejoin="round"/>
+    <path d="M21.448 5.778A18.4 18.4 0 0 1 35.271 9.456L30.532 14.414A11.6 11.6 0 0 0 23.095 12.435Z" fill="#8fa9e6" stroke="#8fa9e6" stroke-width="1.2" stroke-linejoin="round"/>
+    <circle cx="24" cy="24" r="4.5" fill="#ff7a66"/>
+  </g>
+</svg>
